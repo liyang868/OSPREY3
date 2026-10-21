@@ -45,6 +45,15 @@ plugins {
 	id("org.beryx.runtime") // no version here, already specified in buildSrc. This implicitly applies the application plugin.
 }
 
+// Optional output location for cluster builds, without local init scripts.
+System.getenv("OSPREY_BUILD_ROOT")?.let { configuredRoot ->
+	val outputRoot = file(configuredRoot)
+	allprojects {
+		val suffix = if (path == ":") "root" else path.substring(1).replace(':', '_')
+		buildDir = File(outputRoot, "${rootProject.name}-$suffix")
+	}
+}
+
 javafx {
 	version = "11"
 	modules("javafx.controls")
@@ -197,8 +206,14 @@ distributions {
 	main {
 		contents {
 			from("src/main/julia") // add the resistor modules to the distribution
+			duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 		}
 	}
+}
+
+// Avoid build failures when multiple deps ship the same native lib
+tasks.withType<Copy> {
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
 
@@ -219,16 +234,38 @@ tasks.withType<KotlinCompile> {
 }
 
 tasks.withType<Test> {
-	// the default 512m is too little memory to run test designs
-	maxHeapSize = "2g"
+	// PACK* integration cases can request a larger heap explicitly.
+	maxHeapSize = System.getProperty("testMaxHeap") ?: "2g"
 	useJUnitPlatform()
     failFast = true
 	// method call appends additional arguments for the JVM
 	jvmArgs(Jvm.moduleArgs)
 
+	// Forward OSPREY branch-DP/PACK* system properties from gradle CLI
+	// (-Dosprey.xxx=yyy / -Dbranchdp.xxx=yyy / -Dpackstar.xxx=yyy) to the test JVM. Without
+	// this, properties set on the gradle command line are silently dropped
+	// (the test only sees its own defaults / System.setProperty calls).
+	System.getProperties().forEach { key, value ->
+		val k = key.toString()
+		if (k.startsWith("osprey.") || k.startsWith("branchdp.") || k.startsWith("packstar.")) {
+			systemProperty(k, value.toString())
+		}
+	}
+
 	testLogging {
 		setExceptionFormat("full")
         events("passed", "skipped", "failed")
+	}
+}
+
+tasks.register("writePackStarClasspath") {
+	dependsOn(tasks.named("classes"))
+	doLast {
+		val outputPath = System.getenv("PACKSTAR_CLASSPATH_FILE")
+			?: "$buildDir/packstar-classpath.txt"
+		val output = file(outputPath)
+		output.parentFile?.mkdirs()
+		output.writeText(sourceSets["main"].runtimeClasspath.asPath + "\n")
 	}
 }
 

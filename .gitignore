@@ -27,3 +27,45 @@ nbbuild.xml
 # hugo things
 /doc/themes
 /doc/.hugo_build.lock
+
+# Generated builds, runtime results, and local development files
+*.log
+*.out
+*.err
+*.confdb
+*.conf.db
+hs_err_pid*.log
+replay_pid*.log
+__pycache__/
+/packstar-results/
+/packstar-output/
+/emat_cache/
+/.claude/
+/.codex/
+/.local/
+
+# Local experiment orchestration and reports
+/slurm/
+/bench_comparison/
+/h200-runs/
+/bench_logs/
+/loop_benchmark/
+/loop_torsion_diff/
+/kstar_logs/
+/lute_bench*/
+/transfer-tensor/
+/*packstar*.sh
+/*packstar*.py
+/*packstar*.slurm
+/*packstar*.gradle
+/run_*.slurm
+/src/main/c/osprey_logsumexp/
+/src/main/cu/CudaConfEcalc/build*/
+/src/main/resources/linux-x86-64/libCudaConfEcalc.so
+*.md
+*.rst
+*.pdf
+!/README.md
+!/README_PACKSTAR.md
+/doc/
+/docs/

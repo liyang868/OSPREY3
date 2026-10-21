@@ -49,6 +49,16 @@ public abstract class ConcurrentTaskExecutor extends TaskExecutor {
 		return numTasksStarted.get() - numTasksFinished.get();
 	}
 
+	@Override
+	public void waitForCapacity(int maximumOutstandingTasks) {
+		super.waitForCapacity(maximumOutstandingTasks);
+		while (getNumRunningTasks() >= maximumOutstandingTasks) {
+			checkException();
+			taskSignal.waitForSignal(100);
+		}
+		checkException();
+	}
+
 	protected <T> void taskSuccess(Task<T> task, TaskListener<T> listener, T result) {
 
 		try {

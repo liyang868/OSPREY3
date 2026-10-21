@@ -21,6 +21,7 @@ import edu.duke.cs.osprey.energy.forcefield.amber.ForcefieldFileParser;
 import edu.duke.cs.osprey.kstar.KStar;
 import edu.duke.cs.osprey.kstar.pfunc.GradientDescentPfunc;
 import edu.duke.cs.osprey.markstar.framework.MARKStarBoundFastQueues;
+import edu.duke.cs.osprey.packstar.PackStarPartitionFunction;
 import edu.duke.cs.osprey.structure.Molecule;
 import edu.duke.cs.osprey.structure.Residue;
 import one.util.streamex.IntStreamEx;
@@ -61,6 +62,18 @@ public class CommandBindingAffinity extends RunnableCommand {
     @Parameter(names = "--use-markstar", description = "Use MARK* instead of Gradient Descent for the partition function calculation.")
     public boolean useMarkstar;
 
+    @Parameter(names = "--use-packstar",
+            description = "Use PACK* PAC partition-function sampling.")
+    public boolean usePackStar;
+
+    @Parameter(names = "--packstar-pac-samples",
+            description = "Number of PACK* PAC samples. Uses the PACK* default when omitted.")
+    public int packStarPacSamples = -1;
+
+    @Parameter(names = "--packstar-pac-confidence",
+            description = "PACK* PAC confidence level. Uses the PACK* default when omitted.")
+    public double packStarPacConfidence = Double.NaN;
+
     @Parameter(names = "--stability-threshold", description = "Pruning criteria to remove sequences with unstable unbound states relative to the wild type sequence. Set to a negative number to disable.")
     public double stabilityThreshold = 5.0;
 
@@ -85,6 +98,15 @@ public class CommandBindingAffinity extends RunnableCommand {
     }
 
     private int runAffinityDesign(AffinityDesign design) {
+        if (usePackStar) {
+            if (packStarPacSamples > 0) {
+                System.setProperty("packstar.pac.samples", Integer.toString(packStarPacSamples));
+            }
+            if (!Double.isNaN(packStarPacConfidence) && packStarPacConfidence > 0) {
+                System.setProperty("packstar.pac.confidence", Double.toString(packStarPacConfidence));
+            }
+        }
+
         var paramsAndStrands = new ForceFieldParamsAndStrands(delegate, design);
 
         if (doScan && design.scanSettings != null) {
@@ -120,7 +142,19 @@ public class CommandBindingAffinity extends RunnableCommand {
                     .build()
                     .calcEnergyMatrix();
 
-            if (useMarkstar) {
+            if (usePackStar) {
+                var rigidConfECalc = new ConfEnergyCalculator(info.confEcalc, rigidECalc);
+                var rigidEnergymatrix = new SimplerEnergyMatrixCalculator.Builder(rigidConfECalc)
+                        .build()
+                        .calcEnergyMatrix();
+
+                info.pfuncFactory = (rcs) -> {
+                    var pfn = new PackStarPartitionFunction(minimizingConfECalc.confSpace,
+                            rigidEnergymatrix, minimizedEnergyMatrix, info.confEcalc,
+                            rcs, minimizingECalc.parallelism);
+                    return pfn;
+                };
+            } else if (useMarkstar) {
                 var rigidConfECalc = new ConfEnergyCalculator(info.confEcalc, rigidECalc);
                 var rigidEnergymatrix = new SimplerEnergyMatrixCalculator.Builder(rigidConfECalc)
                         .build()

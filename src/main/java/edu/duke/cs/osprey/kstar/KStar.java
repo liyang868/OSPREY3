@@ -352,16 +352,22 @@ public class KStar {
 
 			// compute the partition function
 			PartitionFunction pfunc = makePfunc(ctxGroup, sequence);
-			pfunc.setStabilityThreshold(stabilityThreshold);
-			if (settings.pfuncTimeout != null) {
-				pfunc.compute(settings.pfuncTimeout);
-			} else {
-				pfunc.compute(settings.maxNumConfs);
-			}
+			try {
+				pfunc.setStabilityThreshold(stabilityThreshold);
+				if (settings.pfuncTimeout != null) {
+					pfunc.compute(settings.pfuncTimeout);
+				} else {
+					pfunc.compute(settings.maxNumConfs);
+				}
 
-			// save the result
-			result = pfunc.makeResult();
-			pfuncResults.put(sequence, result);
+				// Copy the scalar result before releasing implementation-specific
+				// working storage. PACK* implements AutoCloseable specifically so its
+				// rooted DP tables do not survive into the next K* state/sequence.
+				result = pfunc.makeResult();
+				pfuncResults.put(sequence, result);
+			} finally {
+				closePfunc(pfunc);
+			}
 
 			/* HACKHACK: we're done using the A* tree, pfunc, etc
 				and normally the garbage collector will clean them up,
@@ -382,6 +388,19 @@ public class KStar {
 			}
 
 			return result;
+		}
+
+		private void closePfunc(PartitionFunction pfunc) {
+			if (!(pfunc instanceof AutoCloseable)) {
+				return;
+			}
+			try {
+				((AutoCloseable)pfunc).close();
+			} catch (RuntimeException ex) {
+				throw ex;
+			} catch (Exception ex) {
+				throw new RuntimeException("failed to release partition-function resources", ex);
+			}
 		}
 	}
 

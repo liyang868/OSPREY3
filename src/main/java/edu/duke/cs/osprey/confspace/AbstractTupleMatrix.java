@@ -142,13 +142,17 @@ public abstract class AbstractTupleMatrix<T> implements TupleMatrix<T>, Serializ
     	this.oneBodyOffsets = other.oneBodyOffsets.clone();
     	this.pairwiseOffsets = other.pairwiseOffsets.clone();
     	this.numPairwiseTerms = other.numPairwiseTerms;
-    	this.pruningInterval = other.pruningInterval;
-    	if (other.higherTerms != null) {
-    		throw new UnsupportedOperationException("copying higher order terms isn't implemented yet");
-    	}
-    	this.higherTerms = null;
-    	this.defaultHigherInteraction = null;
-    }
+		this.pruningInterval = other.pruningInterval;
+		if (other.higherTerms != null) {
+			throw new UnsupportedOperationException("copying higher order terms isn't implemented yet");
+		}
+		this.higherTerms = null;
+		// Keep the sparse higher-order default even though there are no explicit
+		// higher-order entries to copy.  Callers commonly copy a pairwise matrix
+		// and then attach sparse corrections.  Dropping the energy-matrix default
+		// of 0.0 makes every omitted RC assignment return null instead of zero.
+		this.defaultHigherInteraction = other.defaultHigherInteraction;
+	}
     
     protected abstract void allocate(int numOneBody, int numPairwise);
     

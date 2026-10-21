@@ -1,21 +1,21 @@
 /*
 ** This file is part of OSPREY 3.0
-** 
+**
 ** OSPREY Protein Redesign Software Version 3.0
 ** Copyright (C) 2001-2018 Bruce Donald Lab, Duke University
-** 
+**
 ** OSPREY is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License version 2
 ** as published by the Free Software Foundation.
-** 
+**
 ** You should have received a copy of the GNU General Public License
 ** along with OSPREY.  If not, see <http://www.gnu.org/licenses/>.
-** 
+**
 ** OSPREY relies on grants for its development, and since visibility
 ** in the scientific literature is essential for our success, we
 ** ask that users of OSPREY cite our papers. See the CITING_OSPREY
 ** document in this distribution for more information.
-** 
+**
 ** Contact Info:
 **    Bruce Donald
 **    Duke University
@@ -25,7 +25,7 @@
 **    NC 27708-0129
 **    USA
 **    e-mail: www.cs.duke.edu/brd/
-** 
+**
 ** <signature of Bruce Donald>, Mar 1, 2018
 ** Bruce Donald, Professor of Computer Science
 */
@@ -44,7 +44,7 @@ nvcc -fatbin -O2
 	-gencode=arch=compute_62,code=compute_62
 	-maxrregcount 64
 	"kernelSource/ccd.cu" -o "kernelBinaries/ccd.bin"
-	
+
 	See Maxwell compatibility guide for more info:
 	http://docs.nvidia.com/cuda/maxwell-compatibility-guide/index.html#building-maxwell-compatible-apps-using-cuda-6-0
 */
@@ -98,7 +98,7 @@ typedef struct __align__(8) {
 	double charge;
 	double Aij;
 	double Bij;
-	
+
 	// if EEF1 == true
 	double radius1;
 	double lambda1;
@@ -106,7 +106,7 @@ typedef struct __align__(8) {
 	double radius2;
 	double lambda2;
 	double alpha2;
-	
+
 } AtomPair;
 */
 
@@ -122,16 +122,17 @@ class Data {
 public:
 
 	const Header & header;
-	
+
 	__device__ Data(const byte * const data) :
 		m_data(data),
-		header(*(Header *)&m_data[0]),
+		// header is initialized before m_data, in member declaration order.
+		header(*(const Header *)data),
 		m_dihedralOffsets((unsigned long *)&m_data[sizeof(Header)]),
 		m_resPairOffsets((unsigned long *)&m_data[sizeof(Header) + sizeof(long)*header.numDihedrals])
 	{
 		// nothing else to do
 	}
-	
+
 	__device__ const Dihedral & getDihedral(const unsigned int d) const {
 		return *(Dihedral *)&m_data[m_dihedralOffsets[d]];
 	}
@@ -139,55 +140,55 @@ public:
 	__device__ const ResPair & getResPair(const unsigned int i) const {
 		return *(ResPair *)&m_data[m_resPairOffsets[i]];
 	}
-	
+
 	__device__ unsigned long getAtomPairFlags(const ResPair & resPair, const unsigned int i) const {
 		const byte * const p = (byte *)&resPair;
 		const unsigned long * const a = (unsigned long *)&p[sizeof(ResPair)];
 		return a[i];
 	}
-	
+
 	__device__ double getAtomPairCharge(const ResPair & resPair, const unsigned int i) const {
 		return getAtomPairDouble(resPair, i, 0);
 	}
-	
+
 	__device__ double getAtomPairAij(const ResPair & resPair, const unsigned int i) const {
 		return getAtomPairDouble(resPair, i, 1);
 	}
-	
+
 	__device__ double getAtomPairBij(const ResPair & resPair, const unsigned int i) const {
 		return getAtomPairDouble(resPair, i, 2);
 	}
-	
+
 	__device__ double getAtomPairRadius1(const ResPair & resPair, const unsigned int i) const {
 		return getAtomPairDouble(resPair, i, 3);
 	}
-	
+
 	__device__ double getAtomPairLambda1(const ResPair & resPair, const unsigned int i) const {
 		return getAtomPairDouble(resPair, i, 4);
 	}
-	
+
 	__device__ double getAtomPairAlpha1(const ResPair & resPair, const unsigned int i) const {
 		return getAtomPairDouble(resPair, i, 5);
 	}
-	
+
 	__device__ double getAtomPairRadius2(const ResPair & resPair, const unsigned int i) const {
 		return getAtomPairDouble(resPair, i, 6);
 	}
-	
+
 	__device__ double getAtomPairLambda2(const ResPair & resPair, const unsigned int i) const {
 		return getAtomPairDouble(resPair, i, 7);
 	}
-	
+
 	__device__ double getAtomPairAlpha2(const ResPair & resPair, const unsigned int i) const {
 		return getAtomPairDouble(resPair, i, 8);
 	}
-	
+
 	__device__ unsigned short getRotatedAtomOffset(const Dihedral & dihedral, const unsigned int i) const {
 		const byte * const p = (byte *)&dihedral;
 		const unsigned short * const atomOffsets = (unsigned short *)&(p[sizeof(Dihedral)]);
 		return atomOffsets[i];
 	}
-	
+
 	__device__ const ResPair & getResPair(const Dihedral & dihedral, const unsigned int i) const {
 		const byte * const p = (byte *)&dihedral;
 		const unsigned int * const resPairIndices = (unsigned int *)&(p[sizeof(Dihedral) + sizeof(short)*roundUpToMultiple(dihedral.numRotatedAtoms, 4)]);
@@ -198,7 +199,7 @@ private:
 	const byte * const m_data;
 	const unsigned long * const m_dihedralOffsets;
 	const unsigned long * const m_resPairOffsets;
-	
+
 	__device__ double getAtomPairDouble(const ResPair & resPair, const unsigned int i, const unsigned int pos) const {
 		const byte * const p = (byte *)&resPair;
 		const double * const a = (double *)&p[sizeof(ResPair) + sizeof(long)*resPair.numAtomPairs + sizeof(double)*pos*resPair.numAtomPairs];
@@ -220,11 +221,11 @@ __device__ double blockSum(double threadEnergy, double * const threadEnergies) {
 	// http://developer.amd.com/resources/articles-whitepapers/opencl-optimization-case-study-simple-reductions/
 
 	threadEnergies[threadIdx.x] = threadEnergy;
-	
+
 	__syncthreads();
-	
+
 	for (int offset = 1; offset < blockDim.x; offset <<= 1) {
-	
+
 		// sum this level of the reduction tree
 		int mask = (offset << 1) - 1;
 		if ((threadIdx.x & mask) == 0) {
@@ -233,10 +234,10 @@ __device__ double blockSum(double threadEnergy, double * const threadEnergies) {
 				threadEnergies[threadIdx.x] += threadEnergies[pos];
 			}
 		}
-		
+
 		__syncthreads();
 	}
-	
+
 	return threadEnergies[0];
 }
 
@@ -255,50 +256,50 @@ __device__ double calcEnergy(const double * const coords, const Data & data, con
 		flags >>= 1;
 		useHEs = (flags & 0x1) == 0x1;
 	}
-	
+
 	// start with 0 energy
 	double energy = 0;
-	
+
 	unsigned int numResPairs;
 	if (dihedral == NULL) {
 		numResPairs = data.header.numResPairs;
 	} else {
 		numResPairs = dihedral->numResPairs;
 	}
-	
+
 	unsigned int resPairIndex = 0;
 	unsigned int numAtomPairs = 0;
 	for (int n = threadIdx.x; true; n += blockDim.x) {
-	
+
 		// find our res pair and atom pair
 		const ResPair *resPair;
 		int atomPairIndex = -1;
-		
+
 		for (; resPairIndex<numResPairs; resPairIndex++) {
-		
+
 			if (dihedral == NULL) {
 				resPair = &data.getResPair(resPairIndex);
 			} else {
 				resPair = &data.getResPair(*dihedral, resPairIndex);
 			}
-			
+
 			// is our atom pair in this res pair?
 			atomPairIndex = n - numAtomPairs;
 			if (atomPairIndex < resPair->numAtomPairs) {
-			
+
 				// yup, found it!
-				break;	
+				break;
 			}
-			
+
 			numAtomPairs += resPair->numAtomPairs;
 			atomPairIndex = -1;
 		}
-		
+
 		// stop if we ran out of atom pairs
 		if (atomPairIndex < 0) {
 			break;
 		}
-		
+
 		// unpack the flags
 		bool isHeavyPair, is14Bonded;
 		unsigned long offset1, offset2;
@@ -312,9 +313,9 @@ __device__ double calcEnergy(const double * const coords, const Data & data, con
 			flags >>= 1;
 			is14Bonded = (flags & 0x1) == 0x1;
 		}
-		
+
 		double resPairEnergy = 0;
-		
+
 		// get the radius
 		double r2, r;
 		{
@@ -326,12 +327,12 @@ __device__ double calcEnergy(const double * const coords, const Data & data, con
 			r2 += d*d;
 			r = sqrt(r2);
 		}
-		
+
 		// electrostatics
 		if (isHeavyPair || useHEs) {
-		
+
 			double charge = data.getAtomPairCharge(*resPair, atomPairIndex);
-			
+
 			if (is14Bonded) {
 				if (distDepDielect) {
 					resPairEnergy += data.header.scaledCoulombFactor*charge/r2;
@@ -346,40 +347,40 @@ __device__ double calcEnergy(const double * const coords, const Data & data, con
 				}
 			}
 		}
-		
+
 		// van der Waals
 		if (isHeavyPair || useHvdW) {
-		
+
 			double Aij = data.getAtomPairAij(*resPair, atomPairIndex);
 			double Bij = data.getAtomPairBij(*resPair, atomPairIndex);
-			
+
 			double r6 = r2*r2*r2;
 			double r12 = r6*r6;
 			resPairEnergy += Aij/r12 - Bij/r6;
 		}
-		
+
 		// solvation
 		if (useEEF1 && isHeavyPair && r2 < SolvCutoff2) {
-		
+
 			double radius1 = data.getAtomPairRadius1(*resPair, atomPairIndex);
 			double lambda1 = data.getAtomPairLambda1(*resPair, atomPairIndex);
 			double alpha1 = data.getAtomPairAlpha1(*resPair, atomPairIndex);
 			double radius2 = data.getAtomPairRadius2(*resPair, atomPairIndex);
 			double lambda2 = data.getAtomPairLambda2(*resPair, atomPairIndex);
 			double alpha2 = data.getAtomPairAlpha2(*resPair, atomPairIndex);
-			
+
 			double Xij = (r - radius1)/lambda1;
 			double Xji = (r - radius2)/lambda2;
 			resPairEnergy -= (alpha1*exp(-Xij*Xij) + alpha2*exp(-Xji*Xji))/r2;
 		}
-		
+
 		// apply weight and offset
 		if (atomPairIndex == 0) {
 			resPairEnergy += resPair->offset;
 		}
 		energy += resPairEnergy*resPair->weight;
 	}
-	
+
 	return blockSum(energy, threadEnergies);
 }
 
@@ -519,40 +520,40 @@ __device__ void pose(double * const coords, const Data & data, const Dihedral & 
 	double3 b = readCoord(coords, dihedral, dihedral.angleAtomOffsets[1]);
 	double3 c = readCoord(coords, dihedral, dihedral.angleAtomOffsets[2]);
 	double3 d = readCoord(coords, dihedral, dihedral.angleAtomOffsets[3]);
-	
+
 	// translate so everything is centered on b
 	sub(a, b);
 	sub(c, b);
 	sub(d, b);
-	
+
 	// build a right orthonormal matrix [rx,ry,rz] where z is bc and ba points along x
 	double3 rz = c;
 	normalize(rz);
-	
+
 	double3 rx = c;
 	mult(rx, dot(a, c)/dot(c, c));
 	negate(rx);
 	add(rx, a);
 	normalize(rx);
-	
+
 	double3 ry;
 	cross(ry, rz, rx);
-	
+
 	// use r^{-1} to rotate d into our axis-aligned space
 	rotateVecInverse(d, rx, ry, rz);
-	
+
 	// look at the x,y coords of d to get the dihedral angle
 	double2 cossin = make_double2(d.x, d.y);
 	normalize(cossin);
 	double currentSin = cossin.y;
 	double currentCos = cossin.x;
-	
+
 	// get the delta dihedral
 	double newSin, newCos;
 	sincos(dihedralRadians, &newSin, &newCos);
 	double deltaSin = newSin*currentCos - newCos*currentSin;
 	double deltaCos = newCos*currentCos + newSin*currentSin;
-	
+
 	// modify the atoms in parallel
 	if (threadIdx.x < dihedral.numRotatedAtoms) {
 		unsigned short index = data.getRotatedAtomOffset(dihedral, threadIdx.x);
@@ -573,7 +574,7 @@ __device__ double poseAndCalcDihedralEnergy(double * const coords, const Data & 
 }
 
 __device__ double getTolerance(double f) {
-	
+
 	// scale abs(f) by tolerance, unless f is very small
 	return Tolerance * fmax(1.0, fabs(f));
 }
@@ -582,7 +583,7 @@ __device__ LinesearchOut linesearch(double * const coords, const Data & data, co
 
 	// sample energy at the starting point
 	double fxd = poseAndCalcDihedralEnergy(coords, data, dihedral, threadEnergies, xd);
-	
+
 	// get the positive (p) neighbor
 	double fxdp = INFINITY;
 	{
@@ -591,7 +592,7 @@ __device__ LinesearchOut linesearch(double * const coords, const Data & data, co
 			fxdp = poseAndCalcDihedralEnergy(coords, data, dihedral, threadEnergies, xdp);
 		}
 	}
-	
+
 	// get the negative (n) neighbor
 	double fxdm = INFINITY;
 	{
@@ -600,19 +601,19 @@ __device__ LinesearchOut linesearch(double * const coords, const Data & data, co
 			fxdm = poseAndCalcDihedralEnergy(coords, data, dihedral, threadEnergies, xdm);
 		}
 	}
-	
+
 	// fit a quadratic to the objective function, locally:
 	// q(x) = fx + a*(x - xd)^2 + b*(x - xd)
 	// a*step^2 + b*step = fxp - fx
 	// a*step^2 - b*step = fxm - fx
-	
+
 	// solve for a to determine the shape
 	double xdstar = 0;
 	{
 		double shape = fxdp + fxdm - 2*fxd;
 		const double ShapeEpsilon = 1e-12;
 		if (shape < -ShapeEpsilon || shape == NAN || shape == INFINITY) {
-			
+
 			// negative shape means quadratic is concave down
 			// infinite or nan a means we're hitting a constraint or impossible conformation
 			// so just minimize over the endpoints of the interval
@@ -621,14 +622,14 @@ __device__ LinesearchOut linesearch(double * const coords, const Data & data, co
 			} else {
 				xdstar = xd + step;
 			}
-		
+
 		} else if (shape <= ShapeEpsilon) {
-		
+
 			// flat here, don't step
 			xdstar = xd;
-			
+
 		} else {
-			
+
 			// positive shape means quadratic is concave up
 			// step to the optimum
 			xdstar = xd + (fxdm - fxdp)*step/2/shape;
@@ -642,26 +643,26 @@ __device__ LinesearchOut linesearch(double * const coords, const Data & data, co
 	if (xdstar > dihedral.xdmax) {
 		xdstar = dihedral.xdmax;
 	}
-	
+
 	double fxdstar = poseAndCalcDihedralEnergy(coords, data, dihedral, threadEnergies, xdstar);
-	
+
 	// did we go downhill?
 	if (fxdstar < fxd) {
-	
+
 		double fxdmin = NAN;
 		double fxdmax = NAN;
-		
+
 		// surf along f locally to try to find better minimum
 		double xdsurfHere = xdstar;
 		double fxdsurfHere = fxdstar;
 		while (true) {
-		
+
 			// take a step twice as far as we did last time
 			double xdsurfNext = xd + 2*(xdsurfHere - xd);
-			
+
 			// did we step off the min?
 			if (xdsurfNext < dihedral.xdmin) {
-				
+
 				// if the min is better, go there instead
 				if (isnan(fxdmin)) {
 					fxdmin = poseAndCalcDihedralEnergy(coords, data, dihedral, threadEnergies, dihedral.xdmin);
@@ -670,12 +671,12 @@ __device__ LinesearchOut linesearch(double * const coords, const Data & data, co
 					xdsurfHere = dihedral.xdmin;
 					fxdsurfHere = fxdmin;
 				}
-				
+
 				break;
-			
+
 			// did we step off the max?
 			} else if (xdsurfNext > dihedral.xdmax) {
-				
+
 				// if the max is better, go there instead
 				if (isnan(fxdmax)) {
 					fxdmax = poseAndCalcDihedralEnergy(coords, data, dihedral, threadEnergies, dihedral.xdmax);
@@ -684,88 +685,88 @@ __device__ LinesearchOut linesearch(double * const coords, const Data & data, co
 					xdsurfHere = dihedral.xdmax;
 					fxdsurfHere = fxdmax;
 				}
-				
+
 				break;
 			}
-			
+
 			double fxdsurfNext = poseAndCalcDihedralEnergy(coords, data, dihedral, threadEnergies, xdsurfNext);
-			
+
 			// did we improve the min enough to keep surfing?
 			if (fxdsurfNext < fxdsurfHere - getTolerance(fxdsurfHere)) {
-			
+
 				// yeah, keep going
 				xdsurfHere = xdsurfNext;
 				fxdsurfHere = fxdsurfNext;
-				
+
 			} else {
-				
+
 				// nope, stop surfing
 				break;
 			}
 		}
-		
+
 		// update the minimum estimate so far
 		xdstar = xdsurfHere;
 		fxdstar = fxdsurfHere;
-		
+
 	// did we go significantly uphill?
 	} else if (fxdstar > fxd + Tolerance) {
-		
+
 		// try to surf back downhill
 		double xdsurfHere = xdstar;
 		double fxdsurfHere = fxdstar;
 		while (true) {
-		
+
 			// cut the step in half
 			double xdsurfNext = xd + (xdsurfHere - xd)/2;
 			double fxdsurfNext = poseAndCalcDihedralEnergy(coords, data, dihedral, threadEnergies, xdsurfNext);
-			
+
 			// did we improve the min enough to keep surfing?
 			if (fxdsurfNext < fxdsurfHere - getTolerance(fxdsurfHere)) {
-			
+
 				// yeah, keep going
 				xdsurfHere = xdsurfNext;
 				fxdsurfHere = fxdsurfNext;
-				
+
 			} else {
-				
+
 				// nope, stop surfing
 				break;
 			}
 		}
-		
+
 		// did the quadratic step help at all?
 		if (fxdstar < fxd) {
-			
+
 			// yeah, keep it!
-			
+
 		} else {
-			
+
 			// nope, the original spot was lower
 			xdstar = xd;
 			fxdstar = fxd;
 		}
-		
+
 		// did surfing help at all?
 		if (fxdsurfHere < fxdstar) {
-			
+
 			// yeah, use the surf spot
 			xdstar = xdsurfHere;
 			fxdstar = fxdsurfHere;
 		}
 	}
-	
+
 	// compute the step taken before wall jumping
 	LinesearchOut out;
 	out.step = xdstar - xd;
-	
+
 	// try to jump over walls arbitrarily
 	// look in a 1-degree step for a better minimum
-	
+
 	// NOTE: skipping this can make minimization a bit faster,
 	// but skipping this causes a noticeable rise in final energies too
 	// it's best to keep doing it I think
-	
+
 	double xdm = xdstar - OneDegree;
 	double xdp = xdstar + OneDegree;
 	if (xdm >= dihedral.xdmin) {
@@ -782,10 +783,10 @@ __device__ LinesearchOut linesearch(double * const coords, const Data & data, co
 			fxdstar = fxdp;
 		}
 	}
-	
+
 	// one last pose
 	pose(coords, data, dihedral, xdstar);
-	
+
 	// set outputs
 	out.xdstar = xdstar;
 	out.fxdstar = fxdstar;
@@ -801,45 +802,45 @@ extern "C" __global__ void ccd(
 
 	// parse data
 	const Data data(rawdata);
-	
+
 	// partition shared memory
 	extern __shared__ byte shared[];
 	double * const threadEnergies = (double *)shared;
 	double * const nextx = threadEnergies + blockDim.x;
 	double * const firstSteps = nextx + data.header.numDihedrals;
 	double * const lastSteps = firstSteps + data.header.numDihedrals;
-	
+
 	// partition out memory
 	double & herefx = out[data.header.numDihedrals];
 	double * const herex = out;
-	
+
 	// init the step sizes
 	for (int d = threadIdx.x; d < data.header.numDihedrals; d += blockDim.x) {
 		firstSteps[d] = OneDegree;
 		lastSteps[d] = OneDegree;
 	}
 	__syncthreads();
-	
+
 	// get the initial energy
 	herefx = calcEnergy(coords, data, NULL, threadEnergies);
-	
+
 	// init starting x
 	for (int d = threadIdx.x; d < data.header.numDihedrals; d += blockDim.x) {
 		herex[d] = xin[d];
 	}
 	__syncthreads();
-	
+
 	// for each iteraction of CCD...
 	for (int iter=0; iter<MaxIterations; iter++) {
 
 		copyx(herex, nextx, data.header.numDihedrals);
-		
+
 		// for each dimension/dihedral...
 		for (int d=0; d<data.header.numDihedrals; d++) {
 			const Dihedral & dihedral = data.getDihedral(d);
-			
+
 			double xd = nextx[d];
-			
+
 			// get the step size, try to make it adaptive (based on historical steps if possible; else on step #)
 			double step;
 			{
@@ -850,45 +851,45 @@ extern "C" __global__ void ccd(
 				} else {
 					step = InitialStep/pow(iter + 1.0, 3.0);
 				}
-				
+
 				// make sure the step isn't so big that the quadratic approximation is worthless
 				while (dihedral.xdmax > dihedral.xdmin && xd - step < dihedral.xdmin && xd + step > dihedral.xdmax) {
 					step /= 2;
 				}
 			}
-			
+
 			// do line search
 			LinesearchOut lsout = linesearch(coords, data, dihedral, threadEnergies, xd, step);
-			
+
 			// update x and the step
 			if (threadIdx.x == 0) {
-			
+
 				// update step tracking
 				if (iter == 0) {
 					firstSteps[d] = lsout.step;
 				}
 				lastSteps[d] = lsout.step;
-				
+
 				// update nextxd
 				nextx[d] = lsout.xdstar;
 			}
 			__syncthreads();
 		}
-		
+
 		// evaluate the whole energy function
 		double nextfx = calcEnergy(coords, data, NULL, threadEnergies);
 		double improvement = herefx - nextfx;
-		
+
 		if (improvement > 0) {
-		
+
 			// take the step
 			copyx(nextx, herex, data.header.numDihedrals);
 			herefx = nextfx;
-			
+
 			if (improvement < ConvergenceThreshold) {
 				break;
 			}
-			
+
 		} else {
 			break;
 		}

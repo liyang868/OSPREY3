@@ -88,13 +88,31 @@ public class CUBuffer<T extends Buffer> {
 	}
 	
 	public void uploadAsync() {
+		uploadAsync(numBytes);
+	}
+
+	/** Upload only a prefix of this reusable buffer. */
+	public void uploadAsync(long bytes) {
+		if (bytes < 0 || bytes > numBytes) {
+			throw new IllegalArgumentException("upload byte count " + bytes
+				+ " outside [0," + numBytes + "]");
+		}
 		buf.rewind();
-		stream.getContext().uploadAsync(pdBuf, phBuf, numBytes, stream);
+		stream.getContext().uploadAsync(pdBuf, phBuf, bytes, stream);
 	}
 	
 	public void downloadAsync() {
+		downloadAsync(numBytes);
+	}
+
+	/** Download only a prefix of this reusable buffer. */
+	public void downloadAsync(long bytes) {
+		if (bytes < 0 || bytes > numBytes) {
+			throw new IllegalArgumentException("download byte count " + bytes
+				+ " outside [0," + numBytes + "]");
+		}
 		buf.rewind();
-		stream.getContext().downloadAsync(phBuf, pdBuf, numBytes, stream);
+		stream.getContext().downloadAsync(phBuf, pdBuf, bytes, stream);
 	}
 	
 	public T downloadSync() {

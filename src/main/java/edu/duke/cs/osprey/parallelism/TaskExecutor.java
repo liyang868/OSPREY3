@@ -172,6 +172,16 @@ public class TaskExecutor implements AutoCleanable {
 	public void waitForFinish() {
 		// nothing to do
 	}
+
+	/**
+	 * Backpressure for a producer that bounds submitted tasks, including pending
+	 * result callbacks. Synchronous executors never retain outstanding tasks.
+	 */
+	public void waitForCapacity(int maximumOutstandingTasks) {
+		if (maximumOutstandingTasks < 1) {
+			throw new IllegalArgumentException("task capacity must be positive");
+		}
+	}
 	
 	public static class TaskException extends RuntimeException {
 		

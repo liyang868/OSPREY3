@@ -172,6 +172,17 @@ public class KStarScore {
 
 	public static Double scoreToLog10(BigDecimal score) {
 		if (score != null) {
+			if (MathTools.isFinite(score) && score.signum() > 0) {
+				long exponent = (long)score.precision() - score.scale() - 1;
+				if (exponent < -308 || exponent > 308) {
+					// Output only: retain the original BigDecimal and estimation status.
+					// BigDecimalMath.log10 can take hours on extreme decimal scales.
+					// Construct a significand in [1,10) without expanding any powers of ten.
+					BigDecimal significand = new BigDecimal(score.unscaledValue(), score.precision() - 1);
+					return exponent + Math.log10(significand.doubleValue());
+				}
+			}
+			// Preserve the existing precision near one and all special-value behavior.
 			return MathTools.log10(score);
 		}
 		return null;

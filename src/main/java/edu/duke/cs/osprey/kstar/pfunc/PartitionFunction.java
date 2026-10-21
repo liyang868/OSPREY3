@@ -202,11 +202,30 @@ public interface PartitionFunction {
 		public final Status status;
 		public final Values values;
 		public final int numConfs;
+		/**
+		 * Optional, pfunc-specific counters (e.g., minimization counts).
+		 * Implementations can add entries via {@link #setStat(String, long)}.
+		 */
+		private final java.util.Map<String, Long> stats = new java.util.LinkedHashMap<>();
 
 		public Result(Status status, Values values, int numConfs) {
 			this.status = status;
 			this.values = values;
 			this.numConfs = numConfs;
+		}
+
+		public Result setStat(String key, long value) {
+			this.stats.put(key, value);
+			return this;
+		}
+
+		public long getStat(String key) {
+			Long v = stats.get(key);
+			return v == null ? 0L : v;
+		}
+
+		public java.util.Map<String, Long> getStats() {
+			return java.util.Collections.unmodifiableMap(stats);
 		}
 
 		@Override

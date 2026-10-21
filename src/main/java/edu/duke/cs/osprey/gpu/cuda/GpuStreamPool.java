@@ -36,7 +36,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class GpuStreamPool {
 	
@@ -46,7 +48,9 @@ public class GpuStreamPool {
 	private List<Context> contexts;
 	private List<List<GpuStream>> streamsByGpu;
 	private List<GpuStream> streams;
+	private Map<GpuStream,Integer> streamIndexes;
 	private boolean[] checkedOut;
+	private int nextCheckoutIndex;
 		
 	public GpuStreamPool() {
 		this(1);
@@ -110,6 +114,11 @@ public class GpuStreamPool {
 		// initially, all streams are available
 		checkedOut = new boolean[streams.size()];
 		Arrays.fill(checkedOut, false);
+		streamIndexes = new IdentityHashMap<>(streams.size());
+		for (int i=0; i<streams.size(); i++) {
+			streamIndexes.put(streams.get(i), i);
+		}
+		nextCheckoutIndex = 0;
 		
 		if (printPoolSize) {
 			System.out.println(String.format("GpuStreamPool: using %d stream(s) across %d gpu(s)", streams.size(), numGpus));
@@ -128,7 +137,7 @@ public class GpuStreamPool {
 		return streams.size();
 	}
 	
-	public int getNumStreamsAvailable() {
+	public synchronized int getNumStreamsAvailable() {
 		int num = 0;
 		for (int i=0; i<streams.size(); i++) {
 			if (!checkedOut[i]) {
@@ -138,21 +147,32 @@ public class GpuStreamPool {
 		return num;
 	}
 	
-	public synchronized GpuStream checkout() {
-		
-		// find an available queue
-		for (int i=0; i<streams.size(); i++) {
+	public GpuStream checkout() {
+		GpuStream stream = checkoutStream();
+		try {
+			stream.getContext().attachCurrentThread();
+			return stream;
+		} catch (RuntimeException | Error t) {
+			release(stream);
+			throw t;
+		}
+	}
+
+	private synchronized GpuStream checkoutStream() {
+
+		int n = streams.size();
+		for (int offset=0; offset<n; offset++) {
+			int i = (nextCheckoutIndex + offset) % n;
 			if (!checkedOut[i]) {
 				checkedOut[i] = true;
-				GpuStream stream = streams.get(i);
-				stream.getContext().attachCurrentThread();
-				return stream;
+				nextCheckoutIndex = (i + 1) % n;
+				return streams.get(i);
 			}
 		}
-		
+
 		throw new IllegalStateException(String.format("no more streams to checkout, %d already used", streams.size()));
 	}
-	
+
 	public synchronized void release(GpuStream stream) {
 		
 		// if we've already cleaned up, no need to release, just cleanup now
@@ -161,10 +181,9 @@ public class GpuStreamPool {
 			return;
 		}
 		
-		for (int i=0; i<streams.size(); i++) {
-			if (streams.get(i) == stream) {
-				checkedOut[i] = false;
-			}
+		Integer i = streamIndexes.get(stream);
+		if (i != null) {
+			checkedOut[i] = false;
 		}
 	}
 
@@ -175,6 +194,7 @@ public class GpuStreamPool {
 				stream.cleanup();
 			}
 			streams = null;
+			streamIndexes = null;
 			for (Context context : contexts) {
 				context.cleanup();
 			}

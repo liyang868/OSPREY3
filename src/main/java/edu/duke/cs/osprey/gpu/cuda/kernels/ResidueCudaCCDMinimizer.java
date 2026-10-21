@@ -382,6 +382,28 @@ public class ResidueCudaCCDMinimizer extends Kernel implements Minimizer.NeedsCl
 		
 		// allocate the output
 		out = stream.doubleBuffers.checkout(dihedrals.size() + 1);
+
+		// Function.getBestBlockThreads() probes launchability by executing one
+		// real CCD block.  Upload valid inputs before that probe: cudaMalloc
+		// memory is otherwise undefined, and an arbitrary xin can drive the
+		// geometry update through an invalid pose on some drivers.  The real
+		// minimization upload below still refreshes both buffers for every call.
+		DoubleBuffer coordsbuf = coords.getHostBuffer();
+		coordsbuf.clear();
+		for (Residue res : efunc.residues) {
+			coordsbuf.put(res.coords);
+		}
+		coordsbuf.flip();
+		coords.uploadAsync();
+
+		DoubleBuffer xinbuf = xin.getHostBuffer();
+		xinbuf.clear();
+		for (Dihedral dihedral : dihedrals) {
+			xinbuf.put(Math.toRadians(
+				(dihedral.xdmin + dihedral.xdmax) / 2.0));
+		}
+		xinbuf.flip();
+		xin.uploadAsync();
 		
 		func = makeFunction("ccd");
 		func.numBlocks = 1;

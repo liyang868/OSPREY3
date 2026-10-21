@@ -81,7 +81,7 @@ public class EnergyMatrix extends TupleMatrixDouble implements FragmentEnergies 
     }
 
     public EnergyMatrix(ConfSpaceIteration confSpace) {
-    	super(confSpace);
+		super(confSpace.numPos(), confSpace.numConfsByPos(), 0.0, 0.0);
 	}
     
     public EnergyMatrix(int numPos, int[] numRCsAtPos, double pruningInterval){
@@ -225,7 +225,13 @@ public class EnergyMatrix extends TupleMatrixDouble implements FragmentEnergies 
 
             if(iposIndex > -1){//ipos interactions need to be counted
                 int iposRC = tup.RCs.get(iposIndex);
-                E += htf.getInteraction(ipos, iposRC);
+                // Sparse energy matrices use zero for an omitted higher-order
+                // assignment.  Some existing serialized matrices were built
+                // through the ConfSpaceIteration constructor when its generic
+                // sparse default was null, so retain the energy semantics and
+                // treat that legacy null exactly like an unstored zero.
+                Double interaction = htf.getInteraction(ipos, iposRC);
+                if (interaction != null) E += interaction;
                 
                 //see if need to go up to highers order again...
                 HigherTupleFinder<Double> htf2 = htf.getHigherInteractions(ipos,iposRC);

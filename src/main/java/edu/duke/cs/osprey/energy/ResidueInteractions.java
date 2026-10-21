@@ -152,6 +152,9 @@ public class ResidueInteractions implements Iterable<ResidueInteractions.Pair> {
 	}
 
 	public void addAll(ResidueInteractions other) {
+		// Keep the residue index consistent with the merged interaction pairs.
+		// GPU forcefields filter their molecule through this index.
+		resNums.addAll(other.resNums);
 		pairs.putAll(other.pairs);
 	}
 
