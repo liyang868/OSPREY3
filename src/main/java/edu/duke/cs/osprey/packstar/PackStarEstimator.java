@@ -193,6 +193,12 @@ public class PackStarEstimator {
      * otherwise the conditional weights disagree with the child DP normalizers.
      */
     private EnergyMatrix activeProposalEmat;
+    /** Final validated proposal, retained for optional mode traceback after estimation. */
+    private EnergyMatrix frozenProposalEmat;
+
+    EnergyMatrix getFrozenProposalEmat() {
+        return frozenProposalEmat;
+    }
     /** These caches belong to one fixed target and one estimator, never another K* state. */
     private final ByteBoundedCache<ConformationKey, CachedTargetEnergy> ccdEnergyCache;
     private final ByteBoundedCache<ConditionalCdfKey, double[]> conditionalCdfCache;
@@ -2356,6 +2362,7 @@ public class PackStarEstimator {
             return;
         }
 
+        frozenProposalEmat = selectedEmat;
         System.out.println("[PACK*-adaptive-frequency-severity] frozen proposal:"
                 + " round=" + selectedRound
                 + ", candidate=" + selected.id

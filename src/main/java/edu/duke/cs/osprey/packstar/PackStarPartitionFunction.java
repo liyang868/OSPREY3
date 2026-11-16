@@ -21,6 +21,12 @@ import java.util.function.Supplier;
 public class PackStarPartitionFunction implements PartitionFunction.WithConfDB, AutoCloseable {
 
     private final PackStarBranchDpBackend backend;
+    private boolean gmecEnabled;
+
+    /** Include the final proposal's GMEC (most probable conformation); disabled by default. */
+    public void setGmecEnabled(boolean enabled) {
+        gmecEnabled = enabled;
+    }
 
     public PackStarPartitionFunction(SimpleConfSpace confSpace,
                                      EnergyMatrix rigidEmat,
@@ -96,7 +102,8 @@ public class PackStarPartitionFunction implements PartitionFunction.WithConfDB, 
 
     @Override
     public PackStarResult makeResult() {
-        return new PackStarResult(callInPackStarBackend(backend::makeResult));
+        return new PackStarResult(callInPackStarBackend(backend::makeResult),
+                gmecEnabled ? callInPackStarBackend(backend::findGmec) : null);
     }
 
     @Override

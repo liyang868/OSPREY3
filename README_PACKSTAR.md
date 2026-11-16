@@ -66,6 +66,23 @@ GPU execution retains bounded memory use, child-table slicing, out-of-core
 execution, and support for multiple visible GPUs. Small workloads can use the
 CPU path when GPU dispatch would add overhead.
 
+To optionally export the final proposal's GMEC for each evaluated complex-state sequence, add
+`-Dpackstar.design.outputGmec=true`. This is disabled by default. The runner
+writes `<designId>_gmec.csv` and `<designId>_gmec/rank_0001.pdb`, etc., with ranks
+matching the ordinary results CSV. The additional output reports rotamer
+assignments, proposal energy, and continuously minimized energy.
+
+As in BWM*, a min-sum pass over the existing branch decomposition records
+optimal rotamer choices and reconstructs the GMEC by traceback. This GMEC is
+the minimum of the final frozen proposal energy (including learned unary/pair
+corrections), equivalently the most probable conformation of that proposal.
+When adaptation is skipped, it uses the initial proposal. The PDB is obtained by
+continuously minimizing that rotamer assignment; it is not a certified GMEC
+of the full continuous target. Enabling export adds DP work and one structure
+minimization per available sequence. Sequences without a finite frozen proposal are
+reported in the sidecar CSV without a PDB. Ordinary partition-function
+statistics and the main results CSV schema are unchanged.
+
 For an existing Java conformational space, use `PackStarPartitionFunction`,
 call `init(epsilon)`, then `compute(maxSamples)` and `makeResult()`, and close
 the partition function after copying its result.
@@ -73,6 +90,9 @@ The entry point directly owns the PACK* branch-DP backend and configuration
 scope. Results report actual CCD calls and logical sample counts; per-sample
 trace callbacks are no longer part of the API. Use this entry point in place of
 the removed `PackStarBound` and `getDelegate()` API.
+Java callers can call `setGmecEnabled(true)` before `makeResult()` to retain the
+proposal GMEC in `PackStarResult.gmec`; the result survives closing the
+partition function.
 
 ## Defaults and statistical assumptions
 

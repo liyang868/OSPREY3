@@ -509,7 +509,7 @@ public class RootedTreeEdge {
         // sortedLambdaIndices allocated lazily per M-state in initIncrementalEnumeration
     }
 
-    private DPTable makeDPTable() {
+    DPTable makeDPTable() {
         String mode = getConfigProperty(DP_TABLE_MODE_PROPERTY, "auto").trim().toLowerCase(Locale.ROOT);
         int shardSize = Math.max(1, getConfigInteger(DP_SHARD_SIZE_PROPERTY, DEFAULT_DP_SHARD_SIZE));
         if (shouldUseFileBackedDPTable(mStateCount)) {
@@ -643,7 +643,7 @@ public class RootedTreeEdge {
         return mRCs;
     }
 
-    private int[] decodeLambdaState(int lambdaIndex) {
+    int[] decodeLambdaState(int lambdaIndex) {
         int[] lambdaRCs = new int[lambdaPositionsSorted.length];
         decodeLambdaStateInto(lambdaIndex, lambdaRCs);
         return lambdaRCs;

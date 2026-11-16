@@ -3,6 +3,8 @@ package edu.duke.cs.osprey.packstar;
 import edu.duke.cs.osprey.astar.conf.RCs;
 import edu.duke.cs.osprey.confspace.SimpleConfSpace;
 import edu.duke.cs.osprey.branchdp.BranchDpBackend;
+import edu.duke.cs.osprey.branchdp.BranchGmecFinder;
+import edu.duke.cs.osprey.confspace.ConfSearch;
 import edu.duke.cs.osprey.ematrix.EnergyMatrix;
 import edu.duke.cs.osprey.energy.ConfEnergyCalculator;
 import edu.duke.cs.osprey.kstar.pfunc.PartitionFunction;
@@ -24,6 +26,9 @@ final class PackStarBranchDpBackend extends BranchDpBackend implements AutoClose
     private PackStarEstimator activeEstimator = null;
     private int ccdSampleRecords = 0;
     private int smallStateNextRc = 0;
+    private ConfSearch.ScoredConf gmec;
+    private boolean gmecComputed;
+    private EnergyMatrix finalProposalEmat;
 
     PackStarBranchDpBackend(SimpleConfSpace confSpace,
                             EnergyMatrix rigidEmat,
@@ -37,6 +42,7 @@ final class PackStarBranchDpBackend extends BranchDpBackend implements AutoClose
         this.configuredSeedStateRole = stateNameOverride == null
                 || stateNameOverride.trim().isEmpty()
                 ? "standalone" : stateNameOverride.trim();
+        finalProposalEmat = branchMinimizingEmat;
     }
 
     @Override
@@ -45,6 +51,9 @@ final class PackStarBranchDpBackend extends BranchDpBackend implements AutoClose
         smallStateNextRc = 0;
         ccdSampleRecords = 0;
         totalMinimizations = 0;
+        gmec = null;
+        gmecComputed = false;
+        finalProposalEmat = branchMinimizingEmat;
         if (!dpTablesReady) {
             flatSumZLower = java.math.BigDecimal.ZERO;
             flatSumZUpper = MathTools.BigPositiveInfinity;
@@ -131,7 +140,18 @@ final class PackStarBranchDpBackend extends BranchDpBackend implements AutoClose
 
     @Override
     public void close() {
+        finalProposalEmat = null;
         releaseLargeMemory();
+    }
+
+    ConfSearch.ScoredConf findGmec() {
+        if (!gmecComputed) {
+            if (searchRCs == null) throw new IllegalStateException("partition function is closed");
+            gmec = finalProposalEmat == null ? null
+                    : BranchGmecFinder.find(rootedRoot, finalProposalEmat, interactionGraph, searchRCs);
+            gmecComputed = true;
+        }
+        return gmec;
     }
 
     private void abortPackStar(String reason) {
@@ -164,6 +184,7 @@ final class PackStarBranchDpBackend extends BranchDpBackend implements AutoClose
             totalMinimizations = estimator.getTotalCCDCalls();
             numConfsEnergied = totalMinimizations;
             ccdSampleRecords = estimator.getTotalCCDSampleRecords();
+            finalProposalEmat = estimator.getFrozenProposalEmat();
             activeEstimator = null;
         }
 

@@ -1,6 +1,7 @@
 package edu.duke.cs.osprey.packstar;
 
 import edu.duke.cs.osprey.confspace.Sequence;
+import edu.duke.cs.osprey.confspace.RCTuple;
 import edu.duke.cs.osprey.confspace.SimpleConfSpace;
 import edu.duke.cs.osprey.confspace.Strand;
 import edu.duke.cs.osprey.ematrix.EnergyMatrix;
@@ -18,6 +19,8 @@ import edu.duke.cs.osprey.structure.Molecule;
 import edu.duke.cs.osprey.structure.PDBIO;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.*;
 
 /**
@@ -33,6 +36,7 @@ import java.util.*;
  *   packstar.design.numCPUs       — number of CPUs (default 2)
  *   packstar.design.designId      — design identifier for output
  *   packstar.design.outputDir     — output directory
+ *   packstar.design.outputGmec    — export each evaluated complex sequence's proposal GMEC (default false)
  *
  */
 public class PackStarDesignRunner {
@@ -243,7 +247,7 @@ public class PackStarDesignRunner {
     private static void runPackStar(ConfSpaces confSpaces, double epsilon,
                                     Parallelism parallelism, String ematDir,
                                     String designId, String outputDir,
-                                    String outputMethodName) {
+                                    String outputMethodName) throws IOException {
 
         EnergyCalculator.Type ecalcType = Integer.getInteger("packstar.design.numGpus", 0) > 0
                 ? EnergyCalculator.Type.ResidueCudaCCD : EnergyCalculator.Type.Cpu;
@@ -262,6 +266,8 @@ public class PackStarDesignRunner {
             KStar kstar = new KStar(confSpaces.protein, confSpaces.ligand,
                     confSpaces.complex, settings);
 
+            boolean outputGmec = Boolean.parseBoolean(
+                    System.getProperty("packstar.design.outputGmec", "false"));
             for (KStar.ConfSpaceInfo info : kstar.confSpaceInfos()) {
                 SimpleConfSpace cs = (SimpleConfSpace) info.confSpace;
                 String stateName = info.type.name();
@@ -288,6 +294,7 @@ public class PackStarDesignRunner {
                     PackStarPartitionFunction pfunc = new PackStarPartitionFunction(
                             cs, rigidEmat, minimizingEmat, minimizingConfEcalc,
                             rcs, parallelism, stateName);
+                    pfunc.setGmecEnabled(outputGmec && info == kstar.complex);
 
                     return pfunc;
                 };
@@ -300,6 +307,9 @@ public class PackStarDesignRunner {
             rigidEcalc.tasks.waitForFinish();
             double packElapsed = (System.currentTimeMillis() - packT0) / 1000.0;
             writeKStarResults(scores, designId, outputMethodName, outputDir, epsilon, packElapsed);
+            if (outputGmec) {
+                writeGmecResults(scores, kstar.complex.confEcalc, designId, outputDir);
+            }
         }
     }
 
@@ -384,6 +394,49 @@ public class PackStarDesignRunner {
             if (!token.isEmpty()) out.add(token);
         }
         return out;
+    }
+
+    /** Export structures separately, outside partition-function timing and the ordinary CSV schema. */
+    static void writeGmecResults(List<KStar.ScoredSequence> scores, ConfEnergyCalculator confEcalc,
+                                 String designId, String outputDir) throws IOException {
+        File directory = new File(outputDir, designId + "_gmec");
+        Files.createDirectories(directory.toPath());
+        File csv = new File(outputDir, designId + "_gmec.csv");
+        try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(csv.toPath(), StandardCharsets.UTF_8))) {
+            out.println("rank,sequence,status,proposal_gmec_energy_kcal_mol,minimized_energy_kcal_mol,rc_assignments,pdb");
+            for (int i = 0; i < scores.size(); i++) {
+                KStar.ScoredSequence sequence = scores.get(i);
+                PackStarResult result = sequence.score.complex instanceof PackStarResult
+                        ? (PackStarResult) sequence.score.complex : null;
+                String prefix = (i + 1) + "," + csvCell(sequence.sequence.toString(Sequence.Renderer.ResType)) + ",";
+                if (result == null || result.gmec == null) {
+                    out.println(prefix + "NO_PROPOSAL_GMEC,,,,");
+                    continue;
+                }
+                int[] assignments = result.gmec.getAssignments();
+                var molecule = confEcalc.calcEnergy(new RCTuple(assignments));
+                if (!Double.isFinite(molecule.energy)) {
+                    out.println(prefix + "MINIMIZATION_FAILED," + result.gmec.getScore() + ",,"
+                            + csvCell(Arrays.toString(assignments)) + ",");
+                    continue;
+                }
+                File pdb = new File(directory, String.format(Locale.ROOT, "rank_%04d.pdb", i + 1));
+                String comment = "PACK* final proposal GMEC; sequence="
+                        + sequence.sequence.toString(Sequence.Renderer.ResType)
+                        + "; proposal energy=" + result.gmec.getScore()
+                        + "; continuously minimized energy=" + molecule.energy;
+                PDBIO.writeFile(molecule, comment, pdb);
+                out.println(prefix + "EXPORTED," + result.gmec.getScore() + "," + molecule.energy
+                        + "," + csvCell(Arrays.toString(assignments)) + ","
+                        + csvCell(directory.getName() + "/" + pdb.getName()));
+            }
+            if (out.checkError()) throw new IOException("Error writing GMEC CSV " + csv);
+        }
+        System.out.println("GMEC results written to " + csv);
+    }
+
+    private static String csvCell(String value) {
+        return "\"" + value.replace("\"", "\"\"") + "\"";
     }
 
     private static boolean applyResidueFlex(List<Strand> strands, String res, String... rotamers) {
