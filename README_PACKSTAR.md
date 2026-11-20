@@ -94,6 +94,31 @@ Java callers can call `setGmecEnabled(true)` before `makeResult()` to retain the
 proposal GMEC in `PackStarResult.gmec`; the result survives closing the
 partition function.
 
+## SAC sequence search
+
+Add `-Dpackstar.design.search=sac` to the design command above to use the default
+discrete soft actor-critic policy from MS-PACK*. It ranks sequences by
+`ln Z(complex) - ln Z(protein) - ln Z(ligand)` using the full pairwise minimizing
+energy matrices. The output is the best observed Em score. PAC intervals and
+proposal GMECs belong to the ordinary PACK* run.
+
+| Operation | Additional JVM options |
+| --- | --- |
+| Search with a trained policy | `-Dpackstar.sac.policy=/path/to/policy.json` |
+| Train a policy | `-Dpackstar.sac.mode=train -Dpackstar.sac.episodes=10` |
+
+Each invocation scores the wild type and every allowed single and double substitution
+once. Each rollout then has a separate budget of `packstar.sac.queries` new sequence
+queries (default 1000) and `packstar.sac.seconds` seconds (default 600).
+The actor samples local, expansion, remote and batch actions in training and
+chooses the highest-logit action in search. The random seed is `packstar.sac.seed`
+(default 42).
+
+Training writes `<designId>_sac_policy.json` in the design output directory.
+Search reads that file by default, or accepts an existing default MS-PACK* SAC
+checkpoint through `packstar.sac.policy`. Search writes `<designId>_sac.json`
+with the sequence, the three log partition functions, the score and the query counts.
+
 ## Defaults and statistical assumptions
 
 | Setting | Default |
