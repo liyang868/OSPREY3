@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-package edu.duke.cs.osprey.packstar.sac;
+package edu.duke.cs.osprey.packstar.search;
 
 import edu.duke.cs.osprey.astar.conf.RCs;
 import edu.duke.cs.osprey.branchdp.BranchDecomposition;
@@ -11,9 +11,10 @@ import edu.duke.cs.osprey.ematrix.EnergyMatrix;
 import edu.duke.cs.osprey.kstar.pfunc.BoltzmannCalculator;
 
 import java.util.*;
+import java.util.function.ToIntFunction;
 
-/** The three uncut, pairwise Em partition functions used by SAC. All scores are natural logarithms. */
-final class SacEnergyModel {
+/** The three uncut, pairwise Em partition functions used by sequence search. All scores are natural logarithms. */
+final class EmEnergyModel {
     static final double RT = BoltzmannCalculator.RClassic * BoltzmannCalculator.TClassic;
     final String[] names;
     final String[][] alphabet;
@@ -21,7 +22,7 @@ final class SacEnergyModel {
     final long sequenceCount;
     final State[] states;
 
-    SacEnergyModel(SimpleConfSpace[] spaces, EnergyMatrix[] matrices) {
+    EmEnergyModel(SimpleConfSpace[] spaces, EnergyMatrix[] matrices) {
         SimpleConfSpace complex = spaces[0];
         names = complex.positions.stream().map(p -> p.resNum).toArray(String[]::new);
         alphabet = new String[names.length][];
@@ -78,7 +79,8 @@ final class SacEnergyModel {
         }
     }
     private record MessageKey(Region region, Key sequence) {}
-    private record Plan(BranchDecomposition tree, int split, double work, List<Region> regions) {}
+    private record PlannedEdge(Region region, long entries, double work) {}
+    private record Plan(BranchDecomposition tree, int split, double work, List<PlannedEdge> edges) {}
 
     static final class State {
         final EnergyMatrix matrix;
@@ -94,7 +96,7 @@ final class SacEnergyModel {
             this.matrix = matrix;
             this.global = global;
             this.domains = domains;
-            if (matrix.hasHigherOrderTerms() || matrix.hasHigherOrderTuples()) throw new IllegalArgumentException("SAC requires pairwise Em");
+            if (matrix.hasHigherOrderTerms() || matrix.hasHigherOrderTuples()) throw new IllegalArgumentException("Sequence search requires pairwise Em");
             if (!Double.isFinite(matrix.getConstTerm())) throw new IllegalArgumentException("Nonfinite Em constant");
             graph = InteractionGraph.buildComplete(global.length);
             all = new BitSet();
@@ -140,20 +142,22 @@ final class SacEnergyModel {
             var tree = new BranchDecomposition(graph, BranchDecomposition.Strategy.WEIGHTED_HICKS, sizes, false);
             tree.compute();
             var selected = BranchDpBackend.selectConfiguredRoot(tree, new RCs(rows), false);
-            if (selected == null) throw new IllegalStateException("Missing SAC Em decomposition root");
+            if (selected == null) throw new IllegalStateException("Missing Em decomposition root");
             try {
                 List<RootedTreeEdge> edges = new ArrayList<>();
                 RootedTreeEdge.collectLambdaEdges(selected.root, edges);
-                List<Region> regions = new ArrayList<>();
+                List<PlannedEdge> edgePlans = new ArrayList<>();
                 double work = 0;
                 for (var edge : edges) {
                     BitSet inside = new BitSet(), boundary = new BitSet();
                     edge.getL().forEach(inside::set);
                     edge.getM().forEach(boundary::set);
-                    regions.add(new Region(inside, boundary));
-                    work += (double)edge.getMStateCount() * edge.getTotalLambdaStates();
+                    long entries = edge.getMStateCount();
+                    double edgeWork = (double)entries * edge.getTotalLambdaStates();
+                    edgePlans.add(new PlannedEdge(new Region(inside, boundary), entries, edgeWork));
+                    work += edgeWork;
                 }
-                plan = new Plan(tree, selected.splitEdgeIndex, work, regions);
+                plan = new Plan(tree, selected.splitEdgeIndex, work, edgePlans);
                 if (plans.size() == 128) plans.remove(plans.keySet().iterator().next());
                 plans.put(shape, plan);
                 return plan;
@@ -163,9 +167,60 @@ final class SacEnergyModel {
         }
     }
 
+    /**
+     * A private simulation of one LRU branch. Read the live keys in access order
+     * only if we need to predict an eviction. Keep touched keys and their sizes
+     * locally without reading or adding numeric scores or DP entries.
+     */
+    private static final class CacheForecast<K, V> {
+        private final Map<K, V> base;
+        private final Iterator<Map.Entry<K, V>> oldest;
+        private final ToIntFunction<V> weightOf;
+        private final int capacity;
+        private final Map<K, Integer> touched = new LinkedHashMap<>(16, .75f, true);
+        private final Set<K> evicted = new HashSet<>();
+        private int used;
+
+        CacheForecast(Map<K, V> base, ToIntFunction<V> weightOf, int used, int capacity) {
+            this.base = base;
+            oldest = base.entrySet().iterator();
+            this.weightOf = weightOf;
+            this.used = used;
+            this.capacity = capacity;
+        }
+
+        boolean hit(K key, long weight) {
+            if (touched.get(key) != null) return true;
+            boolean found = !evicted.contains(key) && base.containsKey(key);
+            if (weight > capacity) return found;
+            if (!found) {
+                while (used + weight > capacity) evictOldest();
+                used += (int)weight;
+            }
+            touched.put(key, (int)weight);
+            return found;
+        }
+
+        private void evictOldest() {
+            while (oldest.hasNext()) {
+                var entry = oldest.next();
+                if (touched.containsKey(entry.getKey())) continue;
+                evicted.add(entry.getKey());
+                used -= weightOf.applyAsInt(entry.getValue());
+                return;
+            }
+            var it = touched.entrySet().iterator();
+            var entry = it.next();
+            evicted.add(entry.getKey());
+            used -= entry.getValue();
+            it.remove();
+        }
+    }
+
     /** Numeric caches belong to a rollout. Copies of a warm cache share immutable tables. */
     static final class Cache {
         private static final int MAX_ENTRIES = 2_000_000;
+        private static final int MAX_SCORES = 100_000;
         final State state;
         private final Map<MessageKey, double[]> messages = new LinkedHashMap<>(32, .75f, true);
         private final Map<Key, Double> scores = new LinkedHashMap<>(32, .75f, true);
@@ -201,6 +256,26 @@ final class SacEnergyModel {
             return Arrays.stream(rows).mapToDouble(r -> r.length).reduce(1, (a, b) -> a * b);
         }
 
+        Forecast forecast() { return new Forecast(); }
+
+        final class Forecast {
+            private final CacheForecast<Key, Double> scalars = new CacheForecast<>(scores, value -> 1, scores.size(), MAX_SCORES);
+            private final CacheForecast<MessageKey, double[]> tables = new CacheForecast<>(messages, value -> value.length, entries, MAX_ENTRIES);
+
+            double scoreWork(int[] seq, Runnable check) {
+                check.run();
+                if (scalars.hit(state.projection(state.all, seq), 1)) return 0;
+                int[][] rows = state.rows(seq);
+                if (rows.length <= 2) return rows.length == 0 ? 0 : count(state.all, rows);
+                double work = 0;
+                for (var edge : state.plan(rows).edges) {
+                    check.run();
+                    if (!tables.hit(key(edge.region, seq), edge.entries)) work += edge.work;
+                }
+                return work;
+            }
+        }
+
         double score(int[] seq, Runnable check) {
             Key key = state.projection(state.all, seq);
             Double old = scores.get(key);
@@ -208,8 +283,8 @@ final class SacEnergyModel {
             int[][] rows = state.rows(seq);
             double logZ = rows.length > 2 ? fullDp(seq, rows, check) : smallState(rows, check);
             logZ -= state.matrix.getConstTerm() / RT;
-            if (Double.isNaN(logZ) || logZ == Double.POSITIVE_INFINITY) throw new ArithmeticException("Invalid SAC log Z");
-            if (scores.size() == 100_000) scores.remove(scores.keySet().iterator().next());
+            if (Double.isNaN(logZ) || logZ == Double.POSITIVE_INFINITY) throw new ArithmeticException("Invalid Em log Z");
+            if (scores.size() == MAX_SCORES) scores.remove(scores.keySet().iterator().next());
             scores.put(key, logZ);
             return logZ;
         }
@@ -244,7 +319,7 @@ final class SacEnergyModel {
                 for (int i = 0; i < edges.size(); i++) {
                     check.run();
                     var edge = edges.get(i);
-                    MessageKey key = key(plan.regions.get(i), seq);
+                    MessageKey key = key(plan.edges.get(i).region, seq);
                     double[] table = messages.get(key);
                     if (table != null) {
                         for (int j = 0; j < table.length; j++) edge.setLogZ(j, table[j], table[j]);
@@ -286,7 +361,8 @@ final class SacEnergyModel {
             }
             Region best = state.whole;
             if (state.global.length > 2) {
-                for (Region r : state.plan(before).regions) {
+                for (var edge : state.plan(before).edges) {
+                    Region r = edge.region;
                     BitSet missing = (BitSet)changed.clone();
                     missing.andNot(r.inside);
                     if (missing.isEmpty() && r.variables().cardinality() < best.variables().cardinality()

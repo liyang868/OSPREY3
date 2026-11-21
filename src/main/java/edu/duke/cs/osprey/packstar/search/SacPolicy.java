@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-package edu.duke.cs.osprey.packstar.sac;
+package edu.duke.cs.osprey.packstar.search;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -10,7 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-import static edu.duke.cs.osprey.packstar.sac.SacSearch.JSON;
+import static edu.duke.cs.osprey.packstar.search.EmSequenceSearch.JSON;
 
 /** Default discrete SAC from MS-PACK*. One categorical distribution over the current legal actions. */
 final class SacPolicy {
@@ -183,7 +183,7 @@ final class SacPolicy {
         doc.set("q", JSON.valueToTree(critics));
         doc.set("target", JSON.valueToTree(targets));
         doc.set("value", JSON.valueToTree(new double[WIDTH])); // reserved by the original v1 reader
-        SacSearch.writeJson(path, doc);
+        EmSequenceSearch.writeJson(path, doc);
     }
 
     static SacPolicy load(Path path) throws IOException {

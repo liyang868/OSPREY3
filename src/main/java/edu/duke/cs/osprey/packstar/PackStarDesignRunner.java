@@ -13,6 +13,7 @@ import edu.duke.cs.osprey.kstar.KStar;
 import edu.duke.cs.osprey.kstar.pfunc.PartitionFunction;
 import edu.duke.cs.osprey.packstar.PackStarPartitionFunction;
 import edu.duke.cs.osprey.packstar.sac.SacSearch;
+import edu.duke.cs.osprey.packstar.search.LookaheadBoSearch;
 
 import edu.duke.cs.osprey.parallelism.Parallelism;
 import edu.duke.cs.osprey.restypes.ResidueTemplateLibrary;
@@ -47,6 +48,12 @@ public class PackStarDesignRunner {
         SimpleConfSpace protein;
         SimpleConfSpace ligand;
         SimpleConfSpace complex;
+    }
+
+    @FunctionalInterface
+    private interface SequenceSearch {
+        void run(SimpleConfSpace complex, EnergyMatrix complexEm, SimpleConfSpace protein, EnergyMatrix proteinEm,
+                 SimpleConfSpace ligand, EnergyMatrix ligandEm) throws IOException;
     }
 
     public static void main(String[] args) throws Exception {
@@ -251,17 +258,18 @@ public class PackStarDesignRunner {
                                     String designId, String outputDir,
                                     String outputMethodName) throws IOException {
 
-        SacSearch sac = switch (System.getProperty("packstar.design.search", "packstar")) {
+        SequenceSearch sequenceSearch = switch (System.getProperty("packstar.design.search", "packstar")) {
             case "packstar" -> null;
-            case "sac" -> new SacSearch(Path.of(outputDir), designId);
-            default -> throw new IllegalArgumentException("packstar.design.search must be packstar or sac");
+            case "sac" -> new SacSearch(Path.of(outputDir), designId)::run;
+            case LookaheadBoSearch.ROUTE -> new LookaheadBoSearch(Path.of(outputDir), designId)::run;
+            default -> throw new IllegalArgumentException("packstar.design.search must be packstar, sac, or lookahead_bo");
         };
         EnergyCalculator.Type ecalcType = Integer.getInteger("packstar.design.numGpus", 0) > 0
                 ? EnergyCalculator.Type.ResidueCudaCCD : EnergyCalculator.Type.Cpu;
         try (EnergyCalculator minimizingEcalc = new EnergyCalculator.Builder(
                 confSpaces.complex, confSpaces.ffparams)
                 .setParallelism(parallelism).setType(ecalcType).build();
-        EnergyCalculator rigidEcalc = sac != null ? null : new EnergyCalculator.Builder(
+        EnergyCalculator rigidEcalc = sequenceSearch != null ? null : new EnergyCalculator.Builder(
                 confSpaces.complex, confSpaces.ffparams)
                 .setParallelism(parallelism).setType(ecalcType).setIsMinimizing(false).build()) {
             KStar.Settings settings = new KStar.Settings.Builder()
@@ -275,7 +283,7 @@ public class PackStarDesignRunner {
 
             boolean outputGmec = Boolean.parseBoolean(
                     System.getProperty("packstar.design.outputGmec", "false"));
-            Map<KStar.ConfSpaceInfo, EnergyMatrix> sacMatrices = new HashMap<>();
+            Map<KStar.ConfSpaceInfo, EnergyMatrix> sequenceMatrices = new HashMap<>();
             for (KStar.ConfSpaceInfo info : kstar.confSpaceInfos()) {
                 SimpleConfSpace cs = (SimpleConfSpace) info.confSpace;
                 String stateName = info.type.name();
@@ -288,8 +296,8 @@ public class PackStarDesignRunner {
                 EnergyMatrix minimizingEmat = new SimplerEnergyMatrixCalculator.Builder(minimizingConfEcalc)
                         .setCacheFile(new File(cachePrefix + ".minimizing.dat"))
                         .build().calcEnergyMatrix();
-                if (sac != null) {
-                    sacMatrices.put(info, minimizingEmat);
+                if (sequenceSearch != null) {
+                    sequenceMatrices.put(info, minimizingEmat);
                     continue;
                 }
                 ConfEnergyCalculator rigidConfEcalc = new ConfEnergyCalculator.Builder(cs, rigidEcalc)
@@ -313,9 +321,9 @@ public class PackStarDesignRunner {
                 info.confDBFile = null;
             }
 
-            if (sac != null) {
-                sac.run(confSpaces.complex, sacMatrices.get(kstar.complex), confSpaces.protein,
-                        sacMatrices.get(kstar.protein), confSpaces.ligand, sacMatrices.get(kstar.ligand));
+            if (sequenceSearch != null) {
+                sequenceSearch.run(confSpaces.complex, sequenceMatrices.get(kstar.complex), confSpaces.protein,
+                        sequenceMatrices.get(kstar.protein), confSpaces.ligand, sequenceMatrices.get(kstar.ligand));
                 return;
             }
             long packT0 = System.currentTimeMillis();

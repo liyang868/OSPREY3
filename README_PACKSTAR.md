@@ -119,6 +119,25 @@ Search reads that file by default, or accepts an existing default MS-PACK* SAC
 checkpoint through `packstar.sac.policy`. Search writes `<designId>_sac.json`
 with the sequence, the three log partition functions, the score and the query counts.
 
+## Lookahead BO sequence search
+
+Add `-Dpackstar.design.search=lookahead_bo` to the design command. Lookahead BO
+uses the same three-state Em score and warm start as SAC. A categorical Gaussian
+process learns residuals relative to the wild-type single and double substitution
+scores as new sequences are scored. Each decision plans two actions using eight
+simulated first-action outcomes and forecasts the DP work from cache entry sizes.
+The planner falls back to a one-step acquisition rule if planning exceeds one second.
+
+| JVM option | Default |
+| --- | --- |
+| `packstar.bo.queries` | 1000 new sequence queries after the warm start |
+| `packstar.bo.seconds` | 600 seconds after the warm start |
+| `packstar.bo.seed` | 42 |
+
+The search runs online and writes `<designId>_lookahead_bo.json` with the best
+observed sequence, its three log partition functions, the Em score, query counts,
+and GP and planning statistics.
+
 ## Defaults and statistical assumptions
 
 | Setting | Default |

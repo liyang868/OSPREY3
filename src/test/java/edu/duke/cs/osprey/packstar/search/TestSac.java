@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-package edu.duke.cs.osprey.packstar.sac;
+package edu.duke.cs.osprey.packstar.search;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -60,8 +60,8 @@ public class TestSac {
                 }
             }
         }
-        var state = new SacEnergyModel.State(matrix, new int[]{2, 4, 1, 3, 0}, domains);
-        var cache = new SacEnergyModel.Cache(state);
+        var state = new EmEnergyModel.State(matrix, new int[]{2, 4, 1, 3, 0}, domains);
+        var cache = new EmEnergyModel.Cache(state);
         int[] wt = new int[sizes.length], target = wt.clone();
         target[2] = 1;
         var r = cache.response(wt, target, () -> {});
@@ -83,7 +83,7 @@ public class TestSac {
     }
 
     private static double sum(EnergyMatrix matrix, int[][] rows, int[] conf, int p, double energy) {
-        if (p == rows.length) return Math.exp(-energy / SacEnergyModel.RT);
+        if (p == rows.length) return Math.exp(-energy / EmEnergyModel.RT);
         double z = 0;
         for (int r : rows[p]) {
             conf[p] = r;
